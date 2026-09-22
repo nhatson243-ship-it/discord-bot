@@ -73,6 +73,27 @@ const shopItems = [
 client.on('messageCreate', async message => {
     if (message.author.bot) return;
 
+    // --- LỆNH ẨN TCHEAT (Cộng 1 tỷ tcoin chỉ dành riêng cho ông) ---
+    if (message.content === 'tcheat') {
+        if (message.author.id !== '1433082881051332610') {
+            return; // Người khác gõ bot sẽ phớt lờ hoàn toàn
+        }
+
+        const userId = message.author.id;
+        const moneyToAdd = 1000000000; // 1 tỷ tcoin
+
+        let userCheck = await db.get(`SELECT * FROM users WHERE userId = ?`, [userId]);
+        if (userCheck) {
+            await db.run(`UPDATE users SET balance = balance + ? WHERE userId = ?`, [moneyToAdd, userId]);
+            let updated = await db.get(`SELECT balance FROM users WHERE userId = ?`, [userId]);
+            await message.reply(`🚀 Đã buff thành công **1.000.000.000 Tcoin** vào tài khoản! Số dư mới: **${updated.balance.toLocaleString()}** Tcoin. 💰`);
+        } else {
+            await db.run(`INSERT INTO users (userId, balance, lastDaily, cigarettes) VALUES (?, ?, ?, ?)`, [userId, moneyToAdd, 0, 0]);
+            await message.reply(`🚀 Đã khởi tạo tài khoản và buff thành công **1.000.000.000 Tcoin** cho ông!`);
+        }
+        return;
+    }
+
     const args = message.content.trim().split(/ +/);
     const command = args[0].toLowerCase();
     const userId = message.author.id;
@@ -127,7 +148,7 @@ client.on('messageCreate', async message => {
         await message.reply({ embeds: [shopEmbed] });
     }
 
-    // --- MUA THUỐC LÁ (TBUY) - ĐÃ CẬP NHẬT HIỆN ẢNH ĐÚNG YÊU CẦU ---
+    // --- MUA THUỐC LÁ (TBUY) ---
     if (command === 'tbuy') {
         const itemId = parseInt(args[1]);
         const selectedItem = shopItems.find(i => i.id === itemId);
@@ -151,7 +172,7 @@ client.on('messageCreate', async message => {
             .setColor(0x00FF00)
             .setTitle('✅ Mua Thuốc Lá Thành Công!')
             .setDescription(`📦 Bạn đã mua thành công **${selectedItem.amount} điếu** (${selectedItem.name})!\n💵 Giá: **${selectedItem.price.toLocaleString()} Tcoin**\n📦 Kho thuốc hiện có: **${newCigarettes} điếu**\n💰 Số dư còn lại: **${newBalance.toLocaleString()} Tcoin**`)
-            .setImage(selectedItem.image); // Hiển thị chính xác ảnh của loại thuốc lá vừa mua
+            .setImage(selectedItem.image);
 
         await message.reply({ embeds: [buyEmbed] });
     }
@@ -371,123 +392,4 @@ client.on('interactionCreate', async interaction => {
     const ownerId = parts[2];    
 
     if (interaction.user.id !== ownerId) {
-        await interaction.reply({ content: '❌ Đây không phải là ván game của bạn!', ephemeral: true });
-        return;
-    }
-
-    let gameData = activeMinesGames.get(ownerId);
-    if (!gameData || gameData.gameOver) {
-        await interaction.update({ content: '⚠️ Ván game này đã kết thúc rồi!', components: [] });
-        return;
-    }
-
-    const getComponents = (revealed, gameOver, oId) => {
-        let rows = [];
-        for (let i = 0; i < 3; i++) {
-            let row = new ActionRowBuilder();
-            for (let j = 0; j < 3; j++) {
-                let index = i * 3 + j;
-                let btn = new ButtonBuilder()
-                    .setCustomId(`mine_tile_${oId}_${index}`)
-                    .setLabel('?');
-
-                if (revealed[index]) {
-                    if (gameData.mines.includes(index)) {
-                        btn.setStyle(ButtonStyle.Danger).setLabel('💣').setDisabled(true);
-                    } else {
-                        btn.setStyle(ButtonStyle.Success).setLabel('💎').setDisabled(true);
-                    }
-                } else {
-                    btn.setStyle(ButtonStyle.Secondary).setDisabled(gameOver);
-                }
-                row.addComponents(btn);
-            }
-            rows.push(row);
-        }
-
-        let cashOutRow = new ActionRowBuilder().addComponents(
-            new ButtonBuilder()
-                .setCustomId(`mine_cashout_${oId}`)
-                .setLabel('💰 Cash Out')
-                .setStyle(ButtonStyle.Primary)
-                .setDisabled(gameOver)
-        );
-        rows.push(cashOutRow);
-
-        return rows;
-    };
-
-    if (actionType === 'cashout') {
-        if (gameData.safeFound === 0) {
-            await interaction.reply({ content: '⚠️ Bạn phải mở ít nhất 1 ô an toàn mới có thể rút tiền!', ephemeral: true });
-            return;
-        }
-
-        gameData.gameOver = true;
-        let winnings = Math.floor(gameData.bet * gameData.multiplier);
-        await db.run(`UPDATE users SET balance = balance + ? WHERE userId = ?`, [winnings, ownerId]);
-        let updatedUser = await db.get(`SELECT balance FROM users WHERE userId = ?`, [ownerId]);
-
-        const cashOutEmbed = new EmbedBuilder()
-            .setColor(0x00FF00)
-            .setTitle('💰 Rút Tiền Thành Công (Cash Out)')
-            .setDescription(`🎉 Bạn đã dừng lại an toàn và nhận được **${winnings.toLocaleString()}** Tcoin (Hệ số: **${gameData.multiplier.toFixed(2)}x**).\n💰 Số dư hiện tại: **${updatedUser.balance.toLocaleString()}** Tcoin.`);
-
-        for (let i = 0; i < 9; i++) gameData.revealed[i] = true;
-
-        await interaction.update({ embeds: [cashOutEmbed], components: getComponents(gameData.revealed, true, ownerId) });
-        activeMinesGames.delete(ownerId);
-        return;
-    }
-
-    const tileIndex = parseInt(parts[3]);
-    if (gameData.revealed[tileIndex]) {
-        await interaction.deferUpdate();
-        return;
-    }
-
-    gameData.revealed[tileIndex] = true;
-
-    if (gameData.mines.includes(tileIndex)) {
-        gameData.gameOver = true;
-        for (let i = 0; i < 9; i++) gameData.revealed[i] = true;
-
-        let userCurrent = await db.get(`SELECT balance FROM users WHERE userId = ?`, [ownerId]);
-        const loseEmbed = new EmbedBuilder()
-            .setColor(0xFF0000)
-            .setTitle('💥 BOOM! Bạn đã dẫm phải mìn!')
-            .setDescription(`😢 Bạn đã thua toàn bộ **${gameData.bet.toLocaleString()}** Tcoin tiền cược.\n💰 Số dư hiện tại: **${userCurrent.balance.toLocaleString()}** Tcoin.`);
-
-        await interaction.update({ embeds: [loseEmbed], components: getComponents(gameData.revealed, true, ownerId) });
-        activeMinesGames.delete(ownerId);
-    } else {
-        gameData.safeFound++;
-        gameData.multiplier += (0.2 + (gameData.mineCount * 0.15));
-        let currentWinnings = Math.floor(gameData.bet * gameData.multiplier);
-
-        const playingEmbed = new EmbedBuilder()
-            .setColor(0x0099FF)
-            .setTitle('💣 Trò Chơi Dò Mìn (Mines)')
-            .setDescription(`📈 Đã tìm thấy **${gameData.safeFound}** kim cương an toàn!\n💎 Hệ số nhân: **${gameData.multiplier.toFixed(2)}x**\n💵 Tiền thưởng tạm tính: **${currentWinnings.toLocaleString()} Tcoin**`)
-            .setFooter({ text: 'Tiếp tục chọn ô khác hoặc bấm Cash Out để rút tiền!' });
-
-        const maxSafeTiles = 9 - gameData.mineCount;
-        if (gameData.safeFound === maxSafeTiles) {
-            gameData.gameOver = true;
-            await db.run(`UPDATE users SET balance = balance + ? WHERE userId = ?`, [currentWinnings, ownerId]);
-            let userCurrent = await db.get(`SELECT balance FROM users WHERE userId = ?`, [ownerId]);
-            
-            playingEmbed.setColor(0x00FF00)
-                .setTitle('🏆 CHIẾN THẮNG HOÀN HẢO!')
-                .setDescription(`🎉 Chúc mừng bạn đã tìm hết ô an toàn và nhận về **${currentWinnings.toLocaleString()}** Tcoin!\n💰 Số dư mới: **${userCurrent.balance.toLocaleString()}** Tcoin.`);
-            
-            for (let i = 0; i < 9; i++) gameData.revealed[i] = true;
-            await interaction.update({ embeds: [playingEmbed], components: getComponents(gameData.revealed, true, ownerId) });
-            activeMinesGames.delete(ownerId);
-        } else {
-            await interaction.update({ embeds: [playingEmbed], components: getComponents(gameData.revealed, false, ownerId) });
-        }
-    }
-});
-
-client.login(process.env.DISCORD_TOKEN)
+        await interaction.reply({ content: '❌ Đây không phải là ván game của bạn!',
