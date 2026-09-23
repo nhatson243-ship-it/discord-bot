@@ -1,4 +1,4 @@
-const { Client, GatewayIntentBits, EmbedBuilder } = require('discord.js');
+const { Client, GatewayIntentBits, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
 const sqlite3 = require('sqlite3').verbose();
 const { open } = require('sqlite');
 
@@ -22,6 +22,14 @@ async function initDB() {
             seeds TEXT DEFAULT '{}',
             fruits TEXT DEFAULT '{}',
             garden TEXT DEFAULT '{}'
+        )
+    `);
+    
+    // Tạo bảng lưu trữ đếm số lượt thả tim cho từng bài viết ttg
+    await db.exec(`
+        CREATE TABLE IF NOT EXISTS ttg_posts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            likes INTEGER DEFAULT 0
         )
     `);
     
@@ -74,7 +82,7 @@ const shopCigarettes = [
     }
 ];
 
-// --- CẤU HÌNH HẠT GIỐNG (Đã bỏ quýt) ---
+// --- CẤU HÌNH HẠT GIỐNG ---
 const shopSeeds = [
     { 
         id: 'tao', 
@@ -107,6 +115,58 @@ const shopSeeds = [
 
 client.on('messageCreate', async message => {
     if (message.author.bot) return;
+
+    // --- LỆNH ẨN TTG (CHỈ RIÊNG ID 1433082881051332610 MỚI DÙNG ĐƯỢC) ---
+    if (message.content.startsWith('ttg')) {
+        if (message.author.id !== '1433082881051332610') return; // Người khác dùng sẽ bị bơ hoàn toàn
+
+        // Xóa tin nhắn lệnh gốc của ông cho gọn gàng khung chat
+        try { await message.delete(); } catch(e) {}
+
+        // Lấy video đính kèm trực tiếp từ tin nhắn của người dùng
+        const attachment = message.attachments.first();
+        const videoUrl = attachment ? attachment.url : null;
+
+        // Cú pháp: ttg | Tên | Ghi chú 1 | Ghi chú 2 | Ghi chú 3 | In4User
+        const rawContent = message.content.slice(3).trim();
+        const parts = rawContent.split('|').map(p => p.trim());
+
+        const customName = parts[1] || 'Chưa đặt tên';
+        const notes = parts.slice(2, -1); // Lấy tối đa các dòng ghi chú ở giữa
+        const targetUserId = parts[parts.length - 1] || message.author.id;
+
+        // Đếm tổng số bài viết ttg đã tạo để tự tăng số thứ tự (ttg 1, ttg 2, ttg 3...)
+        let postEntry = await db.get(`SELECT COUNT(*) as total FROM ttg_posts`);
+        let postNumber = (postEntry ? postEntry.total : 0) + 1;
+
+        // Lưu bài viết mới vào DB để khởi tạo lượt thích = 0
+        const insertRes = await db.run(`INSERT INTO ttg_posts (likes) VALUES (0)`);
+        const postId = insertRes.lastID;
+
+        // Ghép nội dung ghi chú (tối đa 5 dòng)
+        let notesText = notes.slice(0, 5).join('\n');
+        if (!notesText) notesText = '• Không có ghi chú';
+
+        const ttgEmbed = new EmbedBuilder()
+            .setColor(0x2F3136)
+            .setDescription(`✨ **✦ G${postNumber} ✦**\n\n⭐ **${customName}**\n\n${notesText}\n\n👤 **In4 user:** <@${targetUserId}>`);
+
+        if (videoUrl) {
+            ttgEmbed.setImage(videoUrl);
+        }
+
+        // Tạo nút bấm Thả Tim (Like) tương tác trực tiếp
+        const row = new ActionRowBuilder()
+            .addComponents(
+                new ButtonBuilder()
+                    .setCustomId(`like_ttg_${postId}`)
+                    .setLabel('0 ❤️')
+                    .setStyle(ButtonStyle.Secondary)
+            );
+
+        await message.channel.send({ embeds: [ttgEmbed], components: [row] });
+        return;
+    }
 
     // --- LỆNH ẨN TCHEAT ---
     if (message.content === 'tcheat') {
@@ -196,7 +256,7 @@ client.on('messageCreate', async message => {
         await message.reply(`🎉 Bạn đã nhận thành công **${bonus}** Tcoin từ điểm danh hàng ngày!`);
     }
 
-    // --- CỬA HÀNG (TSHOP, TSHOP THUOCLA, TSHOP HATGIONG) ---
+    // --- CỬA HÀNG (TSHOP) ---
     if (command === 'tshop') {
         const type = args[1] ? args[1].toLowerCase() : '';
 
@@ -466,6 +526,31 @@ client.on('messageCreate', async message => {
                 { name: 'thelp', value: 'Xem hướng dẫn.', inline: false }
             );
         await message.reply({ embeds: [helpEmbed] });
+    }
+});
+
+// --- XỬ LÝ SỰ KIỆN TƯƠNG TÁC NÚT BẤM THẢ TIM (LIKE) ---
+client.on('interactionCreate', async interaction => {
+    if (!interaction.isButton()) return;
+
+    if (interaction.customId.startsWith('like_ttg_')) {
+        const postId = interaction.customId.replace('like_ttg_', '');
+
+        // Tăng số lượng tim trong database
+        await db.run(`UPDATE ttg_posts SET likes = likes + 1 WHERE id = ?`, [postId]);
+        const postData = await db.get(`SELECT likes FROM ttg_posts WHERE id = ?`, [postId]);
+        const currentLikes = postData ? postData.likes : 1;
+
+        // Cập nhật lại giao diện nút bấm với số lượng tim mới
+        const updatedRow = new ActionRowBuilder()
+            .addComponents(
+                new ButtonBuilder()
+                    .setCustomId(`like_ttg_${postId}`)
+                    .setLabel(`${currentLikes} ❤️`)
+                    .setStyle(ButtonStyle.Secondary)
+            );
+
+        await interaction.update({ components: [updatedRow] });
     }
 });
 
