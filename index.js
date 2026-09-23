@@ -13,6 +13,8 @@ async function initDB() {
         filename: './database.sqlite',
         driver: sqlite3.Database
     });
+    
+    // Khởi tạo bảng users đầy đủ các cột Economy & Farm
     await db.exec(`
         CREATE TABLE IF NOT EXISTS users (
             userId TEXT PRIMARY KEY,
@@ -25,14 +27,15 @@ async function initDB() {
         )
     `);
     
-    // Tạo bảng lưu trữ đếm số lượt thả tim cho từng bài viết ttg
+    // Khởi tạo bảng ttg_posts lưu đếm tim cho lệnh ẩn
     await db.exec(`
         CREATE TABLE IF NOT EXISTS ttg_posts (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             likes INTEGER DEFAULT 0
         )
     `);
-    
+
+    // Tự động bổ sung cột nếu DB đã tồn tại trước đó
     try { await db.exec(`ALTER TABLE users ADD COLUMN cigarettes INTEGER DEFAULT 0`); } catch (e) {}
     try { await db.exec(`ALTER TABLE users ADD COLUMN seeds TEXT DEFAULT '{}'`); } catch (e) {}
     try { await db.exec(`ALTER TABLE users ADD COLUMN fruits TEXT DEFAULT '{}'`); } catch (e) {}
@@ -45,6 +48,8 @@ client.once('ready', async () => {
     await initDB();
     console.log(`Bot đã sẵn sàng: ${client.user.tag}`);
 });
+
+const activeMinesGames = new Map();
 
 // --- CẤU HÌNH SHOP THUỐC LÁ ---
 const shopCigarettes = [
@@ -116,34 +121,28 @@ const shopSeeds = [
 client.on('messageCreate', async message => {
     if (message.author.bot) return;
 
-    // --- LỆNH ẨN TTG (CHỈ RIÊNG ID 1433082881051332610 MỚI DÙNG ĐƯỢC) ---
+    // --- LỆNH ẨN TTG (CHỈ DÙNG ĐƯỢC BỞI ID 1433082881051332610) ---
     if (message.content.startsWith('ttg')) {
-        if (message.author.id !== '1433082881051332610') return; // Người khác dùng sẽ bị bơ hoàn toàn
+        if (message.author.id !== '1433082881051332610') return;
 
-        // Xóa tin nhắn lệnh gốc của ông cho gọn gàng khung chat
         try { await message.delete(); } catch(e) {}
 
-        // Lấy video đính kèm trực tiếp từ tin nhắn của người dùng
         const attachment = message.attachments.first();
         const videoUrl = attachment ? attachment.url : null;
 
-        // Cú pháp: ttg | Tên | Ghi chú 1 | Ghi chú 2 | Ghi chú 3 | In4User
         const rawContent = message.content.slice(3).trim();
         const parts = rawContent.split('|').map(p => p.trim());
 
         const customName = parts[1] || 'Chưa đặt tên';
-        const notes = parts.slice(2, -1); // Lấy tối đa các dòng ghi chú ở giữa
+        const notes = parts.slice(2, -1);
         const targetUserId = parts[parts.length - 1] || message.author.id;
 
-        // Đếm tổng số bài viết ttg đã tạo để tự tăng số thứ tự (ttg 1, ttg 2, ttg 3...)
         let postEntry = await db.get(`SELECT COUNT(*) as total FROM ttg_posts`);
         let postNumber = (postEntry ? postEntry.total : 0) + 1;
 
-        // Lưu bài viết mới vào DB để khởi tạo lượt thích = 0
         const insertRes = await db.run(`INSERT INTO ttg_posts (likes) VALUES (0)`);
         const postId = insertRes.lastID;
 
-        // Ghép nội dung ghi chú (tối đa 5 dòng)
         let notesText = notes.slice(0, 5).join('\n');
         if (!notesText) notesText = '• Không có ghi chú';
 
@@ -155,7 +154,6 @@ client.on('messageCreate', async message => {
             ttgEmbed.setImage(videoUrl);
         }
 
-        // Tạo nút bấm Thả Tim (Like) tương tác trực tiếp
         const row = new ActionRowBuilder()
             .addComponents(
                 new ButtonBuilder()
@@ -196,7 +194,7 @@ client.on('messageCreate', async message => {
         await db.run(`INSERT INTO users (userId, balance, lastDaily, cigarettes, seeds, fruits, garden) VALUES (?, ?, ?, ?, ?, ?, ?)`, [userId, 0, 0, 0, '{}', '{}', '{}']);
         user = { userId, balance: 0, lastDaily: 0, cigarettes: 0, seeds: '{}', fruits: '{}', garden: '{}' };
     }
-    
+
     let userSeeds = {};
     let userFruits = {};
     let userGarden = {};
@@ -204,8 +202,183 @@ client.on('messageCreate', async message => {
     try { userFruits = JSON.parse(user.fruits || '{}'); } catch(e) { userFruits = {}; }
     try { userGarden = JSON.parse(user.garden || '{}'); } catch(e) { userGarden = {}; }
 
+    // --- CÁC LỆNH HỆ THỐNG ECONOMY & TƯƠNG TÁC ---
+
     if (command === 'bal') {
         await message.reply(`💰 Bạn đang có **${user.balance.toLocaleString()}** Tcoin và **${user.cigarettes}** điếu thuốc trong người. (Dùng lệnh \`tkho\` để xem chi tiết kho).`);
+    }
+
+    if (command === 'tdaily') {
+        const now = Date.now();
+        const cooldownTime = 24 * 60 * 60 * 1000;
+
+        if (user.lastDaily && now - user.lastDaily < cooldownTime) {
+            const remainingTime = cooldownTime - (now - user.lastDaily);
+            const hours = Math.floor(remainingTime / (1000 * 60 * 60));
+            const minutes = Math.floor((remainingTime % (1000 * 60 * 60)) / (1000 * 60));
+            
+            await message.reply(`⏳ Bạn đã điểm danh rồi! Vui lòng đợi thêm **${hours} giờ ${minutes} phút** nữa.`);
+            return;
+        }
+
+        const bonus = 500;
+        const newBalance = user.balance + bonus;
+        await db.run(`UPDATE users SET balance = ?, lastDaily = ? WHERE userId = ?`, [newBalance, now, userId]);
+        await message.reply(`🎉 Bạn đã nhận thành công **${bonus}** Tcoin từ điểm danh hàng ngày! Số dư mới: **${newBalance.toLocaleString()}** Tcoin.`);
+    }
+
+    // --- GAME MINE (DÒ MÌN) ---
+    if (command === 'mine') {
+        const bet = parseInt(args[1]);
+        if (isNaN(bet) || bet <= 0) {
+            await message.reply(`⚠️ Vui lòng nhập số tiền cược hợp lệ! Ví dụ: \`mine 100 2\` (Cược 100 Tcoin, 2 bom).`);
+            return;
+        }
+
+        let mineCount = parseInt(args[2]);
+        if (isNaN(mineCount) || mineCount < 1) mineCount = 3;
+        if (mineCount > 8) mineCount = 8;
+
+        if (user.balance < bet) {
+            await message.reply(`❌ Bạn không đủ **${bet}** Tcoin để chơi! Số dư hiện tại: **${user.balance.toLocaleString()}** Tcoin.`);
+            return;
+        }
+
+        await db.run(`UPDATE users SET balance = balance - ? WHERE userId = ?`, [bet, userId]);
+
+        const totalTiles = 9;
+        let mines = [];
+        while (mines.length < mineCount) {
+            let rand = Math.floor(Math.random() * totalTiles);
+            if (!mines.includes(rand)) mines.push(rand);
+        }
+
+        activeMinesGames.set(userId, {
+            bet: bet,
+            mineCount: mineCount,
+            mines: mines,
+            revealed: Array(totalTiles).fill(false),
+            gameOver: false,
+            multiplier: 1.0,
+            safeFound: 0
+        });
+
+        const getComponents = (revealed, gameOver, ownerId) => {
+            let rows = [];
+            for (let i = 0; i < 3; i++) {
+                let row = new ActionRowBuilder();
+                for (let j = 0; j < 3; j++) {
+                    let index = i * 3 + j;
+                    let btn = new ButtonBuilder()
+                        .setCustomId(`mine_tile_${ownerId}_${index}`)
+                        .setLabel('?');
+
+                    if (revealed[index]) {
+                        if (mines.includes(index)) {
+                            btn.setStyle(ButtonStyle.Danger).setLabel('💣').setDisabled(true);
+                        } else {
+                            btn.setStyle(ButtonStyle.Success).setLabel('💎').setDisabled(true);
+                        }
+                    } else {
+                        btn.setStyle(ButtonStyle.Secondary).setDisabled(gameOver);
+                    }
+                    row.addComponents(btn);
+                }
+                rows.push(row);
+            }
+
+            let cashOutRow = new ActionRowBuilder().addComponents(
+                new ButtonBuilder()
+                    .setCustomId(`mine_cashout_${ownerId}`)
+                    .setLabel('💰 Cash Out')
+                    .setStyle(ButtonStyle.Primary)
+                    .setDisabled(gameOver)
+            );
+            rows.push(cashOutRow);
+
+            return rows;
+        };
+
+        const gameData = activeMinesGames.get(userId);
+        const initialEmbed = new EmbedBuilder()
+            .setColor(0x0099FF)
+            .setTitle('💣 Trò Chơi Dò Mìn (Mines)')
+            .setDescription(`👤 **${message.author.username}** đã bắt đầu ván game.\n💰 Cược: **${bet.toLocaleString()} Tcoin**\n💣 Số mìn: **${mineCount}**\n📈 Hệ số nhân: **1.00x**`)
+            .setFooter({ text: 'Nhấn vào các ô bên dưới để tìm kim cương hoặc rút tiền!' });
+
+        await message.reply({ embeds: [initialEmbed], components: getComponents(gameData.revealed, false, userId) });
+    }
+
+    // --- LỆNH TKISS ---
+    if (command === 'tkiss') {
+        const target = message.mentions.users.first();
+        if (!target) {
+            await message.reply('⚠️ Vui lòng tag một người bạn muốn hôn nhé! Ví dụ: `tkiss @TênNgườiĐó`');
+            return;
+        }
+
+        const cleanKissGifs = [
+            'https://media.tenor.com/FkOisMWlCagAAAAM/tom-and-jerry-kiss.gif',
+            'https://i.makeagif.com/media/10-06-2022/gdEMW8.gif',
+            'https://i.pinimg.com/originals/c4/75/4d/c4754d0f0a6c146556bd4f671b6922aa.gif',
+            'https://i.makeagif.com/media/8-09-2015/JBHDVb.gif',
+            'https://i.pinimg.com/originals/a1/ae/df/a1aedf1c18493db0799cd6a175ec2028.gif',
+            'https://i.pinimg.com/originals/2b/77/fc/2b77fc17ea87694acb1dad6513f629cc.gif',
+            'https://i.pinimg.com/originals/6a/0e/c2/6a0ec26a242fa9cda6358a3e2399d918.gif'
+        ];
+
+        const randomGif = cleanKissGifs[Math.floor(Math.random() * cleanKissGifs.length)];
+
+        const embed = new EmbedBuilder()
+            .setColor(0xFF69B4)
+            .setDescription(`💋 **${message.author.username}** đã trao một nụ hôn ngọt ngào cho **${target.username}**!`)
+            .setImage(randomGif);
+
+        await message.reply({ embeds: [embed] });
+    }
+
+    // --- LỆNH THUG ---
+    if (command === 'thug') {
+        const target = message.mentions.users.first();
+        if (!target) {
+            await message.reply('⚠️ Vui lòng tag một người bạn muốn ôm nhé! Ví dụ: `thug @TênNgườiĐó`');
+            return;
+        }
+
+        const hugGifs = [
+            'https://media.giphy.com/media/M95nvRItv0U48/giphy.gif',
+            'https://media.giphy.com/media/od5H3PmEG5EVq/giphy.gif',
+            'https://media.giphy.com/media/ZQNM4rphECc0qcU3Zw/giphy.gif'
+        ];
+        const randomGif = hugGifs[Math.floor(Math.random() * hugGifs.length)];
+
+        const embed = new EmbedBuilder()
+            .setColor(0x00BFFF)
+            .setDescription(`🤗 **${message.author.username}** đã ôm chặt **${target.username}** thật ấm áp!`)
+            .setImage(randomGif);
+
+        await message.reply({ embeds: [embed] });
+    }
+
+    // --- LỆNH TDANCE ---
+    if (command === 'tdance') {
+        const chiikawaDanceGifs = [
+            'https://media.tenor.com/UJQR1ifPtqAAAAAM/hachiware-chiikawa.gif',
+            'https://r2.chiikawawallpaper.com/wallpaper/gif/25ea427f7999497eadc8cc84f9678d93.gif',
+            'https://i.pinimg.com/originals/a5/17/0d/a5170d91c668f97c5179a36ce237219b.gif',
+            'https://media.tenor.com/5CgfDZqRmHsAAAAj/chiikawa.gif',
+            'https://gifdb.com/images/branded/high/adorable-chiikawa-bouncing-characters-uce3q8y75usn7u2o.gif'
+        ];
+        
+        const randomGif = chiikawaDanceGifs[Math.floor(Math.random() * chiikawaDanceGifs.length)];
+
+        const embed = new EmbedBuilder()
+            .setColor(0xFFD700)
+            .setTitle('💃 Chiikawa Dance Time!')
+            .setDescription(`✨ **${message.author.username}** đang nhún nhảy cực kỳ đáng yêu cùng hội bạn Chiikawa! Wèo wèo~`)
+            .setImage(randomGif);
+
+        await message.reply({ embeds: [embed] });
     }
 
     // --- LỆNH XEM KHO (TKHO) ---
@@ -236,24 +409,6 @@ client.on('messageCreate', async message => {
             .setFooter({ text: 'Dùng lệnh tsell để bán quả lấy Tcoin!' });
 
         await message.reply({ embeds: [khoEmbed] });
-    }
-
-    if (command === 'tdaily') {
-        const now = Date.now();
-        const cooldownTime = 24 * 60 * 60 * 1000;
-
-        if (user.lastDaily && now - user.lastDaily < cooldownTime) {
-            const remainingTime = cooldownTime - (now - user.lastDaily);
-            const hours = Math.floor(remainingTime / (1000 * 60 * 60));
-            const minutes = Math.floor((remainingTime % (1000 * 60 * 60)) / (1000 * 60));
-            await message.reply(`⏳ Bạn đã điểm danh rồi! Vui lòng đợi thêm **${hours} giờ ${minutes} phút** nữa.`);
-            return;
-        }
-
-        const bonus = 500;
-        const newBalance = user.balance + bonus;
-        await db.run(`UPDATE users SET balance = ?, lastDaily = ? WHERE userId = ?`, [newBalance, now, userId]);
-        await message.reply(`🎉 Bạn đã nhận thành công **${bonus}** Tcoin từ điểm danh hàng ngày!`);
     }
 
     // --- CỬA HÀNG (TSHOP) ---
@@ -317,241 +472,4 @@ client.on('messageCreate', async message => {
                 return;
             }
 
-            const newBalance = user.balance - selectedSeed.price;
-            userSeeds[selectedSeed.id] = (userSeeds[selectedSeed.id] || 0) + 1;
-
-            await db.run(`UPDATE users SET balance = ?, seeds = ? WHERE userId = ?`, [newBalance, JSON.stringify(userSeeds), userId]);
-
-            const embed = new EmbedBuilder()
-                .setColor(0x00FF00)
-                .setTitle('✅ Mua Hạt Giống Thành Công!')
-                .setDescription(`🌱 Bạn đã mua **${selectedSeed.name}**!\n💵 Giá: **${selectedSeed.price.toLocaleString()} Tcoin**\n💰 Số dư còn lại: **${newBalance.toLocaleString()} Tcoin**`)
-                .setImage(selectedSeed.image);
-            await message.reply({ embeds: [embed] });
-            return;
-        }
-
-        const itemId = parseInt(args[1]);
-        const selectedItem = shopCigarettes.find(i => i.id === itemId);
-
-        if (!selectedItem) {
-            await message.reply('⚠️ Vui lòng dùng lệnh `tshop thuocla` để xem ID thuốc lá hoặc `tshop hatgiong` để mua hạt giống!');
-            return;
-        }
-
-        if (user.balance < selectedItem.price) {
-            await message.reply(`❌ Bạn không đủ tiền! Cần **${selectedItem.price.toLocaleString()} Tcoin**.`);
-            return;
-        }
-
-        const newBalance = user.balance - selectedItem.price;
-        const newCigarettes = user.cigarettes + selectedItem.amount;
-
-        await db.run(`UPDATE users SET balance = ?, cigarettes = ? WHERE userId = ?`, [newBalance, newCigarettes, userId]);
-
-        const buyEmbed = new EmbedBuilder()
-            .setColor(0x00FF00)
-            .setTitle('✅ Mua Thuốc Lá Thành Công!')
-            .setDescription(`📦 Bạn đã mua **${selectedItem.amount} điếu** (${selectedItem.name})!\n💵 Giá: **${selectedItem.price.toLocaleString()} Tcoin**`)
-            .setImage(selectedItem.image);
-
-        await message.reply({ embeds: [buyEmbed] });
-    }
-
-    // --- LỆNH BÁN QUẢ (TSELL) ---
-    if (command === 'tsell') {
-        const fruitId = args[1] ? args[1].toLowerCase() : '';
-        const targetSeed = shopSeeds.find(i => i.id === fruitId);
-
-        if (!targetSeed) {
-            await message.reply('⚠️ Vui lòng nhập đúng loại quả muốn bán! Ví dụ: `tsell tao 1` hoặc `tsell all tao`. Các loại: `tao`, `cam`, `buoi`.');
-            return;
-        }
-
-        let currentFruitCount = userFruits[targetSeed.id] || 0;
-        if (currentFruitCount <= 0) {
-            await message.reply(`❌ Bạn không có **${targetSeed.fruitName}** nào trong kho để bán!`);
-            return;
-        }
-
-        let sellAmount = 0;
-        const amountArg = args[2] ? args[2].toLowerCase() : '1';
-
-        if (amountArg === 'all') {
-            sellAmount = currentFruitCount;
-        } else {
-            sellAmount = parseInt(amountArg);
-            if (isNaN(sellAmount) || sellAmount <= 0) {
-                await message.reply('⚠️ Số lượng bán không hợp lệ!');
-                return;
-            }
-        }
-
-        if (sellAmount > currentFruitCount) {
-            await message.reply(`❌ Bạn chỉ có **${currentFruitCount}** ${targetSeed.fruitName} trong kho thôi!`);
-            return;
-        }
-
-        userFruits[targetSeed.id] -= sellAmount;
-        if (userFruits[targetSeed.id] <= 0) delete userFruits[targetSeed.id];
-
-        const totalEarn = sellAmount * targetSeed.sellPrice;
-        const newBalance = user.balance + totalEarn;
-
-        await db.run(`UPDATE users SET balance = ?, fruits = ? WHERE userId = ?`, [newBalance, JSON.stringify(userFruits), userId]);
-
-        const sellEmbed = new EmbedBuilder()
-            .setColor(0xFFD700)
-            .setTitle('💰 Bán Quả Thành Công!')
-            .setDescription(`🛍️ Bạn đã bán **${sellAmount}** ${targetSeed.fruitName}!\n💵 Nhận được: **${totalEarn.toLocaleString()} Tcoin**\n💰 Số dư mới: **${newBalance.toLocaleString()} Tcoin**`);
-        await message.reply({ embeds: [sellEmbed] });
-        return;
-    }
-
-    // --- LỆNH TRỒNG CÂY (TTRONGCAY) ---
-    if (command === 'ttrongcay') {
-        const seedId = args[1] ? args[1].toLowerCase() : '';
-        const selectedSeed = shopSeeds.find(i => i.id === seedId);
-
-        if (!selectedSeed) {
-            await message.reply('⚠️ Vui lòng chọn loại hạt giống muốn trồng! Ví dụ: `ttrongcay tao`, `ttrongcay cam`, `ttrongcay buoi`.');
-            return;
-        }
-
-        if (!userSeeds[selectedSeed.id] || userSeeds[selectedSeed.id] <= 0) {
-            await message.reply(`❌ Bạn không có **${selectedSeed.name}** trong kho! Hãy dùng lệnh \`tshop hatgiong\` để mua.`);
-            return;
-        }
-
-        if (userGarden.seedId) {
-            await message.reply('❌ Vườn của bạn đang có cây trồng rồi! Hãy chờ thu hoạch hoặc hái quả trước khi trồng cây mới.');
-            return;
-        }
-
-        userSeeds[selectedSeed.id] -= 1;
-        if (userSeeds[selectedSeed.id] <= 0) delete userSeeds[selectedSeed.id];
-
-        userGarden = {
-            seedId: selectedSeed.id,
-            seedName: selectedSeed.name,
-            fruitName: selectedSeed.fruitName,
-            plantedAt: Date.now(),
-            watered: false,
-            image: selectedSeed.image
-        };
-
-        await db.run(`UPDATE users SET seeds = ?, garden = ? WHERE userId = ?`, [JSON.stringify(userSeeds), JSON.stringify(userGarden), userId]);
-
-        const embed = new EmbedBuilder()
-            .setColor(0x00FF00)
-            .setTitle('🌱 Trồng Cây Thành Công!')
-            .setDescription(`🏡 Bạn đã gieo trồng **${selectedSeed.name}** xuống mảnh vườn.\n⏳ Thời gian lớn: **120 giờ**.\n💧 Nhớ dùng lệnh \`ttuoicay\` hàng ngày nhé!`)
-            .setImage(selectedSeed.image);
-        await message.reply({ embeds: [embed] });
-    }
-
-    // --- LỆNH TƯỚI CÂY (TTUOICAY) ---
-    if (command === 'ttuoicay') {
-        if (!userGarden.seedId) {
-            await message.reply('❌ Vườn của bạn đang trống! Hãy dùng lệnh `ttrongcay [loại]` để trồng cây.');
-            return;
-        }
-
-        userGarden.watered = true;
-        await db.run(`UPDATE users SET garden = ? WHERE userId = ?`, [JSON.stringify(userGarden), userId]);
-        await message.reply('💧 Bạn đã tưới nước cho cây đầy đủ! Cây đang lớn lên từng ngày.');
-    }
-
-    // --- LỆNH HÁI QUẢ (THAIQUA) ---
-    if (command === 'thaiqua') {
-        if (!userGarden.seedId) {
-            await message.reply('❌ Vườn của bạn không có cây nào để hái quả!');
-            return;
-        }
-
-        const growTime = 120 * 60 * 60 * 1000; // 120 giờ
-        const elapsedTime = Date.now() - userGarden.plantedAt;
-
-        if (elapsedTime < growTime) {
-            const remaining = growTime - elapsedTime;
-            const hours = Math.floor(remaining / (1000 * 60 * 60));
-            const minutes = Math.floor((remaining % (1000 * 60 * 60)) / (1000 * 60));
-            await message.reply(`⏳ Cây chưa lớn! Vui lòng đợi thêm **${hours} giờ ${minutes} phút** nữa (Tổng thời gian nuôi là 120h).`);
-            return;
-        }
-
-        const sId = userGarden.seedId;
-        const fruitDisplayName = userGarden.fruitName;
-        const fruitImage = userGarden.image;
-
-        userFruits[sId] = (userFruits[sId] || 0) + 1;
-        userGarden = {};
-
-        await db.run(`UPDATE users SET fruits = ?, garden = ? WHERE userId = ?`, [JSON.stringify(userFruits), JSON.stringify(userGarden), userId]);
-
-        const embed = new EmbedBuilder()
-            .setColor(0xFFD700)
-            .setTitle('🎉 Thu Hoạch Thành Công!')
-            .setDescription(`🍎 Bạn đã hái thành công **1 ${fruitDisplayName}** và cất vào kho!\n🎒 Dùng lệnh \`tkho\` để kiểm tra kho hoặc \`tsell ${sId} 1\` để bán lấy Tcoin.`)
-            .setImage(fruitImage);
-        await message.reply({ embeds: [embed] });
-    }
-
-    // --- CÁC LỆNH KHÁC ---
-    if (command === 'thutthuoc') {
-        if (user.cigarettes <= 0) {
-            await message.reply('❌ Bạn đã hết thuốc lá rồi! Hãy dùng lệnh `tshop thuocla` để mua thêm.');
-            return;
-        }
-        await db.run(`UPDATE users SET cigarettes = cigarettes - 1 WHERE userId = ?`, [userId]);
-        await message.reply(`🚬 **${message.author.username}** châm lửa và hút 1 điếu thuốc cực chill.`);
-    }
-
-    if (command === 'thelp') {
-        const helpEmbed = new EmbedBuilder()
-            .setColor(0x0099FF)
-            .setTitle('📜 Bảng Trợ Giúp - Tính Năng Làm Vườn & Kho Đồ')
-            .addFields(
-                { name: 'bal', value: 'Kiểm tra số dư Tcoin nhanh.', inline: false },
-                { name: 'tkho', value: 'Kiểm tra chi tiết kho (Hạt giống, Thuốc lá, Quả trong kho).', inline: false },
-                { name: 'tshop thuocla', value: 'Mở cửa hàng bán thuốc lá 🚬', inline: false },
-                { name: 'tshop hatgiong', value: 'Mở cửa hàng bán hạt giống làm vườn 🌱', inline: false },
-                { name: 'tbuy [id]', value: 'Mua thuốc lá theo ID (Ví dụ: `tbuy 1`).', inline: false },
-                { name: 'tbuy seed [tên]', value: 'Mua hạt giống cây trồng (Ví dụ: `tbuy seed tao`).', inline: false },
-                { name: 'ttrongcay [tao/cam/buoi]', value: 'Trồng hạt giống xuống vườn (Hiện ảnh cây trĩu quả).', inline: false },
-                { name: 'ttuoicay', value: 'Tưới nước chăm sóc cây.', inline: false },
-                { name: 'thaiqua', value: 'Hái quả đưa vào kho sau khi cây lớn đủ 120h.', inline: false },
-                { name: 'tsell [loại] [số lượng/all]', value: 'Bán quả trong kho lấy Tcoin (Ví dụ: `tsell tao 1` hoặc `tsell all tao`).', inline: false },
-                { name: 'thutthuoc', value: 'Hút thuốc lá trong kho.', inline: false },
-                { name: 'thelp', value: 'Xem hướng dẫn.', inline: false }
-            );
-        await message.reply({ embeds: [helpEmbed] });
-    }
-});
-
-// --- XỬ LÝ SỰ KIỆN TƯƠNG TÁC NÚT BẤM THẢ TIM (LIKE) ---
-client.on('interactionCreate', async interaction => {
-    if (!interaction.isButton()) return;
-
-    if (interaction.customId.startsWith('like_ttg_')) {
-        const postId = interaction.customId.replace('like_ttg_', '');
-
-        // Tăng số lượng tim trong database
-        await db.run(`UPDATE ttg_posts SET likes = likes + 1 WHERE id = ?`, [postId]);
-        const postData = await db.get(`SELECT likes FROM ttg_posts WHERE id = ?`, [postId]);
-        const currentLikes = postData ? postData.likes : 1;
-
-        // Cập nhật lại giao diện nút bấm với số lượng tim mới
-        const updatedRow = new ActionRowBuilder()
-            .addComponents(
-                new ButtonBuilder()
-                    .setCustomId(`like_ttg_${postId}`)
-                    .setLabel(`${currentLikes} ❤️`)
-                    .setStyle(ButtonStyle.Secondary)
-            );
-
-        await interaction.update({ components: [updatedRow] });
-    }
-});
-
-client.login(process.env.DISCORD_TOKEN);
+            const newBalance = user.balance;
