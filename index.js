@@ -38,7 +38,7 @@ client.once('ready', async () => {
     console.log(`Bot đã sẵn sàng: ${client.user.tag}`);
 });
 
-// --- CẤU HÌNH SHOP ---
+// --- CẤU HÌNH SHOP THUỐC LÁ ---
 const shopCigarettes = [
     { 
         id: 1, 
@@ -74,7 +74,7 @@ const shopCigarettes = [
     }
 ];
 
-// Đã cập nhật ảnh sang ảnh CÂY TRỒNG TRĨU QUẢ (Táo, Cam, Quýt, Bưởi)
+// --- CẤU HÌNH HẠT GIỐNG (Đã bỏ quýt) ---
 const shopSeeds = [
     { 
         id: 'tao', 
@@ -82,7 +82,7 @@ const shopSeeds = [
         fruitName: '🍎 Quả Táo',
         price: 10000, 
         sellPrice: 50000,
-        image: 'https://images.unsplash.com/photo-1576045057995-568f588f82fb', // Hình ảnh cây táo
+        image: 'https://images.unsplash.com/photo-1576045057995-568f588f82fb',
         desc: 'Trồng và thu hoạch những trái táo đỏ mọng.' 
     },
     { 
@@ -91,17 +91,8 @@ const shopSeeds = [
         fruitName: '🍊 Quả Cam',
         price: 10000, 
         sellPrice: 50000,
-        image: 'https://images.unsplash.com/photo-1547514701-42782101795e', // Hình ảnh cây cam trĩu quả
+        image: 'https://images.unsplash.com/photo-1547514701-42782101795e',
         desc: 'Cây cam mọng nước, giàu Vitamin C.' 
-    },
-    { 
-        id: 'quyt', 
-        name: '🍊 Hạt giống Cây Quýt', 
-        fruitName: '🍊 Quả Quýt',
-        price: 10000, 
-        sellPrice: 50000,
-        image: 'https://images.unsplash.com/photo-1557800636-894aeca4c1ae', // Hình ảnh cây quýt
-        desc: 'Quýt ngọt thơm ngon, dễ trồng.' 
     },
     { 
         id: 'buoi', 
@@ -109,7 +100,7 @@ const shopSeeds = [
         fruitName: '🍈 Quả Bưởi',
         price: 10000, 
         sellPrice: 50000,
-        image: 'https://images.unsplash.com/photo-1536939459926-301728717817', // Hình ảnh cây bưởi
+        image: 'https://images.unsplash.com/photo-1536939459926-301728717817',
         desc: 'Bưởi năm roi siêu to khổng lồ.' 
     }
 ];
@@ -213,7 +204,7 @@ client.on('messageCreate', async message => {
             const seedEmbed = new EmbedBuilder()
                 .setColor(0x00FF00)
                 .setTitle('🌱 Cửa Hàng Hạt Giống Làm Vườn')
-                .setDescription('Dùng lệnh `tbuy seed [tên]` để mua hạt giống! (Ví dụ: `tbuy seed tao`, `tbuy seed quyt`)');
+                .setDescription('Dùng lệnh `tbuy seed [tên]` để mua hạt giống! (Ví dụ: `tbuy seed tao`, `tbuy seed cam`, `tbuy seed buoi`)');
 
             shopSeeds.forEach(item => {
                 seedEmbed.addFields({
@@ -257,7 +248,7 @@ client.on('messageCreate', async message => {
             const selectedSeed = shopSeeds.find(i => i.id === seedId);
 
             if (!selectedSeed) {
-                await message.reply('⚠️ Vui lòng chọn đúng loại hạt giống: `tao`, `cam`, `quyt`, `buoi`. (Ví dụ: `tbuy seed quyt`)');
+                await message.reply('⚠️ Vui lòng chọn đúng loại hạt giống: `tao`, `cam`, `buoi`. (Ví dụ: `tbuy seed tao`)');
                 return;
             }
 
@@ -313,7 +304,7 @@ client.on('messageCreate', async message => {
         const targetSeed = shopSeeds.find(i => i.id === fruitId);
 
         if (!targetSeed) {
-            await message.reply('⚠️ Vui lòng nhập đúng loại quả muốn bán! Ví dụ: `tsell tao 1` hoặc `tsell all tao`. Các loại: `tao`, `cam`, `quyt`, `buoi`.');
+            await message.reply('⚠️ Vui lòng nhập đúng loại quả muốn bán! Ví dụ: `tsell tao 1` hoặc `tsell all tao`. Các loại: `tao`, `cam`, `buoi`.');
             return;
         }
 
@@ -363,7 +354,7 @@ client.on('messageCreate', async message => {
         const selectedSeed = shopSeeds.find(i => i.id === seedId);
 
         if (!selectedSeed) {
-            await message.reply('⚠️ Vui lòng chọn loại hạt giống muốn trồng! Ví dụ: `ttrongcay tao`, `ttrongcay cam`, `ttrongcay quyt`, `ttrongcay buoi`.');
+            await message.reply('⚠️ Vui lòng chọn loại hạt giống muốn trồng! Ví dụ: `ttrongcay tao`, `ttrongcay cam`, `ttrongcay buoi`.');
             return;
         }
 
@@ -395,7 +386,7 @@ client.on('messageCreate', async message => {
             .setColor(0x00FF00)
             .setTitle('🌱 Trồng Cây Thành Công!')
             .setDescription(`🏡 Bạn đã gieo trồng **${selectedSeed.name}** xuống mảnh vườn.\n⏳ Thời gian lớn: **120 giờ**.\n💧 Nhớ dùng lệnh \`ttuoicay\` hàng ngày nhé!`)
-            .setImage(selectedSeed.image); // Hiển thị hình ảnh cây trồng trĩu quả
+            .setImage(selectedSeed.image);
         await message.reply({ embeds: [embed] });
     }
 
@@ -466,11 +457,11 @@ client.on('messageCreate', async message => {
                 { name: 'tshop thuocla', value: 'Mở cửa hàng bán thuốc lá 🚬', inline: false },
                 { name: 'tshop hatgiong', value: 'Mở cửa hàng bán hạt giống làm vườn 🌱', inline: false },
                 { name: 'tbuy [id]', value: 'Mua thuốc lá theo ID (Ví dụ: `tbuy 1`).', inline: false },
-                { name: 'tbuy seed [tên]', value: 'Mua hạt giống cây trồng (Ví dụ: `tbuy seed quyt`).', inline: false },
-                { name: 'ttrongcay [tao/cam/quyt/buoi]', value: 'Trồng hạt giống xuống vườn (Hiện ảnh cây trĩu quả).', inline: false },
+                { name: 'tbuy seed [tên]', value: 'Mua hạt giống cây trồng (Ví dụ: `tbuy seed tao`).', inline: false },
+                { name: 'ttrongcay [tao/cam/buoi]', value: 'Trồng hạt giống xuống vườn (Hiện ảnh cây trĩu quả).', inline: false },
                 { name: 'ttuoicay', value: 'Tưới nước chăm sóc cây.', inline: false },
                 { name: 'thaiqua', value: 'Hái quả đưa vào kho sau khi cây lớn đủ 120h.', inline: false },
-                { name: 'tsell [loại] [số lượng/all]', value: 'Bán quả trong kho lấy Tcoin (Ví dụ: `tsell quyt 1` hoặc `tsell all quyt`).', inline: false },
+                { name: 'tsell [loại] [số lượng/all]', value: 'Bán quả trong kho lấy Tcoin (Ví dụ: `tsell tao 1` hoặc `tsell all tao`).', inline: false },
                 { name: 'thutthuoc', value: 'Hút thuốc lá trong kho.', inline: false },
                 { name: 'thelp', value: 'Xem hướng dẫn.', inline: false }
             );
