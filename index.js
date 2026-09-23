@@ -1,4 +1,4 @@
-const { Client, GatewayIntentBits, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
+const { Client, GatewayIntentBits, EmbedBuilder } = require('discord.js');
 const sqlite3 = require('sqlite3').verbose();
 const { open } = require('sqlite');
 
@@ -25,7 +25,6 @@ async function initDB() {
         )
     `);
     
-    // Tự động thêm cột nếu database cũ chưa có
     try { await db.exec(`ALTER TABLE users ADD COLUMN cigarettes INTEGER DEFAULT 0`); } catch (e) {}
     try { await db.exec(`ALTER TABLE users ADD COLUMN seeds TEXT DEFAULT '{}'`); } catch (e) {}
     try { await db.exec(`ALTER TABLE users ADD COLUMN fruits TEXT DEFAULT '{}'`); } catch (e) {}
@@ -39,9 +38,7 @@ client.once('ready', async () => {
     console.log(`Bot đã sẵn sàng: ${client.user.tag}`);
 });
 
-const activeMinesGames = new Map();
-
-// --- CẤU HÌNH SHOP (THUỐC LÁ & HẠT GIỐNG) ---
+// --- CẤU HÌNH SHOP ---
 const shopCigarettes = [
     { 
         id: 1, 
@@ -77,6 +74,7 @@ const shopCigarettes = [
     }
 ];
 
+// Đã cập nhật ảnh sang ảnh CÂY TRỒNG TRĨU QUẢ (Táo, Cam, Quýt, Bưởi)
 const shopSeeds = [
     { 
         id: 'tao', 
@@ -84,7 +82,7 @@ const shopSeeds = [
         fruitName: '🍎 Quả Táo',
         price: 10000, 
         sellPrice: 50000,
-        image: 'https://images.unsplash.com/photo-1560806887-1e4cd0b6cbd6',
+        image: 'https://images.unsplash.com/photo-1576045057995-568f588f82fb', // Hình ảnh cây táo
         desc: 'Trồng và thu hoạch những trái táo đỏ mọng.' 
     },
     { 
@@ -93,7 +91,7 @@ const shopSeeds = [
         fruitName: '🍊 Quả Cam',
         price: 10000, 
         sellPrice: 50000,
-        image: 'https://images.unsplash.com/photo-1611080626919-7cf5a9dbab5b',
+        image: 'https://images.unsplash.com/photo-1547514701-42782101795e', // Hình ảnh cây cam trĩu quả
         desc: 'Cây cam mọng nước, giàu Vitamin C.' 
     },
     { 
@@ -102,7 +100,7 @@ const shopSeeds = [
         fruitName: '🍊 Quả Quýt',
         price: 10000, 
         sellPrice: 50000,
-        image: 'https://images.unsplash.com/photo-1550258987-190a2d41a8ba',
+        image: 'https://images.unsplash.com/photo-1557800636-894aeca4c1ae', // Hình ảnh cây quýt
         desc: 'Quýt ngọt thơm ngon, dễ trồng.' 
     },
     { 
@@ -111,7 +109,7 @@ const shopSeeds = [
         fruitName: '🍈 Quả Bưởi',
         price: 10000, 
         sellPrice: 50000,
-        image: 'https://images.unsplash.com/photo-1577234286642-fc512a5f8f11',
+        image: 'https://images.unsplash.com/photo-1536939459926-301728717817', // Hình ảnh cây bưởi
         desc: 'Bưởi năm roi siêu to khổng lồ.' 
     }
 ];
@@ -156,7 +154,7 @@ client.on('messageCreate', async message => {
     try { userGarden = JSON.parse(user.garden || '{}'); } catch(e) { userGarden = {}; }
 
     if (command === 'bal') {
-        await message.reply(`💰 Bạn đang có **${user.balance.toLocaleString()}** Tcoin và **${user.cigarettes}** điếu thuốc trong người. (Dùng lệnh \`tkho\` để xem chi tiết hạt giống và quả trong kho).`);
+        await message.reply(`💰 Bạn đang có **${user.balance.toLocaleString()}** Tcoin và **${user.cigarettes}** điếu thuốc trong người. (Dùng lệnh \`tkho\` để xem chi tiết kho).`);
     }
 
     // --- LỆNH XEM KHO (TKHO) ---
@@ -207,7 +205,7 @@ client.on('messageCreate', async message => {
         await message.reply(`🎉 Bạn đã nhận thành công **${bonus}** Tcoin từ điểm danh hàng ngày!`);
     }
 
-    // --- CỬA HÀNG (TSHOP) ---
+    // --- CỬA HÀNG (TSHOP, TSHOP THUOCLA, TSHOP HATGIONG) ---
     if (command === 'tshop') {
         const type = args[1] ? args[1].toLowerCase() : '';
 
@@ -215,21 +213,22 @@ client.on('messageCreate', async message => {
             const seedEmbed = new EmbedBuilder()
                 .setColor(0x00FF00)
                 .setTitle('🌱 Cửa Hàng Hạt Giống Làm Vườn')
-                .setDescription('Dùng lệnh `tbuy seed [tên]` để mua hạt giống! (Ví dụ: `tbuy seed tao`)');
+                .setDescription('Dùng lệnh `tbuy seed [tên]` để mua hạt giống! (Ví dụ: `tbuy seed tao`, `tbuy seed quyt`)');
 
             shopSeeds.forEach(item => {
                 seedEmbed.addFields({
                     name: `ID [${item.id}] - ${item.name}`,
-                    value: `💵 Giá: **${item.price.toLocaleString()} Tcoin** | 💰 Giá bán quả thu hoạch: **${item.sellPrice.toLocaleString()} Tcoin/quả**\n📝 *${item.desc}*`,
+                    value: `💵 Giá mua: **${item.price.toLocaleString()} Tcoin** | 💰 Giá bán quả: **${item.sellPrice.toLocaleString()} Tcoin/quả**\n📝 *${item.desc}*`,
                     inline: false
                 });
             });
             await message.reply({ embeds: [seedEmbed] });
-        } else {
+        } 
+        else if (type === 'thuocla' || type === 'thuoc') {
             const shopEmbed = new EmbedBuilder()
                 .setColor(0xFFA500)
-                .setTitle('🛒 Cửa Hàng Thuốc Lá & Hạt Giống')
-                .setDescription('Gõ `tshop` để xem thuốc lá.\nGõ `tshop hatgiong` để xem cửa hàng hạt giống làm vườn.');
+                .setTitle('🛒 Cửa Hàng Thuốc Lá')
+                .setDescription('Dùng lệnh `tbuy [id]` để mua thuốc lá! (Ví dụ: `tbuy 1`)');
 
             shopCigarettes.forEach(item => {
                 shopEmbed.addFields({
@@ -239,6 +238,13 @@ client.on('messageCreate', async message => {
                 });
             });
             await message.reply({ embeds: [shopEmbed] });
+        } 
+        else {
+            const menuEmbed = new EmbedBuilder()
+                .setColor(0x0099FF)
+                .setTitle('🏪 Hệ Thống Cửa Hàng')
+                .setDescription('Vui lòng chọn đúng danh mục cửa hàng bạn muốn xem:\n\n• `tshop thuocla` - Mở shop bán thuốc lá 🚬\n• `tshop hatgiong` - Mở shop bán hạt giống 🌱');
+            await message.reply({ embeds: [menuEmbed] });
         }
     }
 
@@ -251,7 +257,7 @@ client.on('messageCreate', async message => {
             const selectedSeed = shopSeeds.find(i => i.id === seedId);
 
             if (!selectedSeed) {
-                await message.reply('⚠️ Vui lòng chọn đúng loại hạt giống: `tao`, `cam`, `quyt`, `buoi`. (Ví dụ: `tbuy seed tao`)');
+                await message.reply('⚠️ Vui lòng chọn đúng loại hạt giống: `tao`, `cam`, `quyt`, `buoi`. (Ví dụ: `tbuy seed quyt`)');
                 return;
             }
 
@@ -278,7 +284,7 @@ client.on('messageCreate', async message => {
         const selectedItem = shopCigarettes.find(i => i.id === itemId);
 
         if (!selectedItem) {
-            await message.reply('⚠️ Vui lòng nhập đúng ID thuốc lá hoặc gõ `tshop hatgiong` để mua hạt giống!');
+            await message.reply('⚠️ Vui lòng dùng lệnh `tshop thuocla` để xem ID thuốc lá hoặc `tshop hatgiong` để mua hạt giống!');
             return;
         }
 
@@ -389,7 +395,7 @@ client.on('messageCreate', async message => {
             .setColor(0x00FF00)
             .setTitle('🌱 Trồng Cây Thành Công!')
             .setDescription(`🏡 Bạn đã gieo trồng **${selectedSeed.name}** xuống mảnh vườn.\n⏳ Thời gian lớn: **120 giờ**.\n💧 Nhớ dùng lệnh \`ttuoicay\` hàng ngày nhé!`)
-            .setImage(selectedSeed.image);
+            .setImage(selectedSeed.image); // Hiển thị hình ảnh cây trồng trĩu quả
         await message.reply({ embeds: [embed] });
     }
 
@@ -425,11 +431,9 @@ client.on('messageCreate', async message => {
 
         const sId = userGarden.seedId;
         const fruitDisplayName = userGarden.fruitName;
+        const fruitImage = userGarden.image;
 
-        // Thêm quả vào kho (userFruits)
         userFruits[sId] = (userFruits[sId] || 0) + 1;
-
-        // Reset vườn
         userGarden = {};
 
         await db.run(`UPDATE users SET fruits = ?, garden = ? WHERE userId = ?`, [JSON.stringify(userFruits), JSON.stringify(userGarden), userId]);
@@ -437,14 +441,15 @@ client.on('messageCreate', async message => {
         const embed = new EmbedBuilder()
             .setColor(0xFFD700)
             .setTitle('🎉 Thu Hoạch Thành Công!')
-            .setDescription(`🍎 Bạn đã hái thành công **1 ${fruitDisplayName}** và cất vào kho!\n🎒 Dùng lệnh \`tkho\` để kiểm tra kho hoặc \`tsell ${sId} 1\` để bán lấy Tcoin.`);
+            .setDescription(`🍎 Bạn đã hái thành công **1 ${fruitDisplayName}** và cất vào kho!\n🎒 Dùng lệnh \`tkho\` để kiểm tra kho hoặc \`tsell ${sId} 1\` để bán lấy Tcoin.`)
+            .setImage(fruitImage);
         await message.reply({ embeds: [embed] });
     }
 
     // --- CÁC LỆNH KHÁC ---
     if (command === 'thutthuoc') {
         if (user.cigarettes <= 0) {
-            await message.reply('❌ Bạn đã hết thuốc lá rồi! Hãy dùng lệnh `tshop` để mua thêm.');
+            await message.reply('❌ Bạn đã hết thuốc lá rồi! Hãy dùng lệnh `tshop thuocla` để mua thêm.');
             return;
         }
         await db.run(`UPDATE users SET cigarettes = cigarettes - 1 WHERE userId = ?`, [userId]);
@@ -458,12 +463,14 @@ client.on('messageCreate', async message => {
             .addFields(
                 { name: 'bal', value: 'Kiểm tra số dư Tcoin nhanh.', inline: false },
                 { name: 'tkho', value: 'Kiểm tra chi tiết kho (Hạt giống, Thuốc lá, Quả trong kho).', inline: false },
-                { name: 'tshop', value: 'Xem cửa hàng thuốc lá (`tshop`) và hạt giống (`tshop hatgiong`).', inline: false },
-                { name: 'tbuy [id] hoặc tbuy seed [tên]', value: 'Mua thuốc lá hoặc mua hạt giống cây trồng.', inline: false },
-                { name: 'ttrongcay [tao/cam/quyt/buoi]', value: 'Trồng hạt giống vào vườn (Thời gian lớn: 120h).', inline: false },
+                { name: 'tshop thuocla', value: 'Mở cửa hàng bán thuốc lá 🚬', inline: false },
+                { name: 'tshop hatgiong', value: 'Mở cửa hàng bán hạt giống làm vườn 🌱', inline: false },
+                { name: 'tbuy [id]', value: 'Mua thuốc lá theo ID (Ví dụ: `tbuy 1`).', inline: false },
+                { name: 'tbuy seed [tên]', value: 'Mua hạt giống cây trồng (Ví dụ: `tbuy seed quyt`).', inline: false },
+                { name: 'ttrongcay [tao/cam/quyt/buoi]', value: 'Trồng hạt giống xuống vườn (Hiện ảnh cây trĩu quả).', inline: false },
                 { name: 'ttuoicay', value: 'Tưới nước chăm sóc cây.', inline: false },
                 { name: 'thaiqua', value: 'Hái quả đưa vào kho sau khi cây lớn đủ 120h.', inline: false },
-                { name: 'tsell [loại] [số lượng/all]', value: 'Bán quả trong kho để đổi lấy Tcoin (Ví dụ: `tsell tao 1` hoặc `tsell all tao`).', inline: false },
+                { name: 'tsell [loại] [số lượng/all]', value: 'Bán quả trong kho lấy Tcoin (Ví dụ: `tsell quyt 1` hoặc `tsell all quyt`).', inline: false },
                 { name: 'thutthuoc', value: 'Hút thuốc lá trong kho.', inline: false },
                 { name: 'thelp', value: 'Xem hướng dẫn.', inline: false }
             );
